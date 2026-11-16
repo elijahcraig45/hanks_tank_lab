@@ -4,9 +4,9 @@ name: ci
 # existed there were none.)
 on:
   pull_request:
-    branches: [master]
+    branches: [master, main]  # master here, main in the public copy
   push:
-    branches: [master]
+    branches: [master, main]  # master here, main in the public copy
   workflow_dispatch:
 
 jobs:
