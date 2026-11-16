@@ -1,0 +1,33 @@
+# CFB: from hanks_tank_ml cfb/main.py, cfb/backfill_cfb.py, cfb/cfb_drives.py, stats/build.py, season_sim/store.py. Weekly: ingest Sun 06:00 ET, cfbd 07:00, drives 07:30, season sim 08:00,
+# predict Tue 06:00. Season months 8-12 and 1.
+sport: cfb
+tables:
+  - {id: cfb_historical.games, stage: raw, label: Games and results (FBS and FCS), written_by: [cfb-weekly-ingest], how: upsert, key: [game_id, season], date_column: game_date,
+     cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, notes: "Replace-by-season, with a guard that refuses a write much smaller than what exists. ESPN scoreboard weeks that fail are skipped."}
+  - {id: cfb_historical.drives, stage: raw, label: Drives, written_by: [cfb-weekly-drives], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [drive_sim]}
+  - {id: cfb_season.team_season_stats, stage: raw, label: Team season stats, written_by: [cfb-weekly-ingest], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}}
+  - {id: cfb_season.stat_leaders, stage: raw, label: Stat leaders, written_by: [cfb-weekly-ingest, cfb-weekly-cfbd], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]},
+     read_by: [/api/football/:sport/stats/leaders], notes: "Two writers (ESPN in ingest, CFBD in cfbd) share this table; whichever runs later wins."}
+  - {id: cfb_season.player_season_stats, stage: raw, label: Player season stats, written_by: [cfb-weekly-cfbd], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, notes: "Needs the CFBD key; the job skips silently without it."}
+  - {id: cfb_season.team_game_advanced, stage: raw, label: Team game advanced (CFBD), written_by: [cfb-weekly-cfbd], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}}
+  - {id: cfb_season.team_season_advanced, stage: raw, label: Team season advanced (CFBD), written_by: [cfb-weekly-cfbd], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}}
+  - {id: cfb_season.team_season_epa, stage: raw, label: Team season EPA (CFBD), written_by: [cfb-weekly-cfbd], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}}
+  - {id: cfb_season.betting_lines, stage: raw, label: Betting lines (CFBD), written_by: [cfb-weekly-cfbd], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [market, /api/football/:sport/models/compare]}
+  - {id: cfb_season.game_predictions, stage: predictions, label: Game predictions (headline - margin ridge from 2026 week 11, XGBoost before), written_by: [cfb-weekly-predict, cfb-weekly-ingest], how: upsert, key: [game_id, season, week], date_column: game_date,
+     cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [/api/football/:sport/predictions, /api/football/:sport/accuracy, /api/models/:sport/compare, /api/health/scheduler],
+     notes: "predict replaces the listed games; the Sunday ingest scores finished games (only rows whose prediction_correct is still NULL). A postponed game keeps home_won NULL and can stall the next-week logic.", writes_every_run: false}
+  - {id: cfb_season.game_predictions_ridge_shadow, stage: shadows, label: Margin ridge (own table), written_by: [cfb-weekly-predict], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [ridge],
+     notes: "The ridge's whole live record. From 2026 week 11 it holds the same rows as the headline game_predictions."}
+  - {id: cfb_season.game_predictions_ridge_prior_shadow, stage: shadows, label: Margin ridge + program prior shadow, written_by: [cfb-weekly-predict], how: upsert, optional: true,
+     cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]},
+     notes: "cfb_v3_ridge_prior, from 2026 week 11. Read by nothing yet; compare it with the headline ridge on scored games (scripts in hanks_tank_ml research/cfb_preseason_prior)."}
+  - {id: cfb_season.game_predictions_xgb_shadow, stage: shadows, label: XGBoost (former headline), written_by: [cfb-weekly-predict, cfb-weekly-ingest], how: upsert,
+     cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [xgb],
+     notes: "Seeded 2026-11-03 with every XGBoost row from game_predictions (scripts/gcp/football/ridge_headline_swap.sql); written weekly since; scored by the Sunday ingest."}
+  - {id: cfb_season.game_predictions_drive_sim, stage: shadows, label: Drive simulator shadow, written_by: [cfb-weekly-predict], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [drive_sim]}
+  - {id: cfb_season.fpi_game_predictions, stage: shadows, label: ESPN FPI snapshots, written_by: [cfb-weekly-ingest, cfb-weekly-predict], how: append, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [fpi], writes_every_run: false}
+  - {id: cfb_season.game_sim_distributions, stage: sims, label: Game sim distributions, written_by: [cfb-weekly-predict], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}}
+  - {id: cfb_season.season_sim_team, stage: sims, label: Season sim, per team, written_by: [cfb-weekly-season-sim], how: upsert, key: [season, as_of_week, team], cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [/api/season-sim/:sport]}
+  - {id: cfb_season.season_sim_bracket, stage: sims, label: Season sim, bracket, written_by: [cfb-weekly-season-sim], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [/api/season-sim/:sport]}
+  - {id: cfb_season.season_sim_games, stage: sims, label: Season sim, games, written_by: [cfb-weekly-season-sim], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [/api/season-sim/:sport]}
+  - {id: cfb_season.power_rankings, stage: rankings, label: Power rankings, written_by: [cfb-weekly-ingest], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1]}, read_by: [/api/rankings/:sport]}

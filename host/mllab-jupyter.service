@@ -1,0 +1,23 @@
+[Unit]
+Description=JupyterLab for mllab, loopback only
+After=network.target
+
+[Service]
+User=mllab
+Group=mllab
+Slice=mllab.slice
+Nice=15
+WorkingDirectory=/mnt/appdata/mllab/work
+# JUPYTER_TOKEN, MLLAB_*, GOOGLE_APPLICATION_CREDENTIALS, CLOUDSDK_CONFIG live in /etc/mllab/env (0600)
+EnvironmentFile=/etc/mllab/env
+ExecStart=/opt/mllab/venv/bin/jupyter lab --ip=127.0.0.1 --port=8898 --no-browser \
+  --ServerApp.allow_remote_access=True --ServerApp.base_url=/ --ServerApp.root_dir=/mnt/appdata/mllab/work
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/mnt/appdata/mllab /var/lib/mllab
+
+[Install]
+WantedBy=multi-user.target

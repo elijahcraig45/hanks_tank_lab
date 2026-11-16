@@ -1,0 +1,66 @@
+# MLB: what the pipeline reads and writes, declared once. Write methods and job mapping are from reading hanks_tank_ml (cloud_function_main.py, season_2026_pipeline.py,
+# build_*_features_live.py, predict_today_games.py, pa_sim/*) on 2026-10-05; cadences are checked against the tables' real last-change times.
+# Season: the pipeline runs months 3-11. The regular season ends in late September, so tables that only change on regular-season days go idle after month 9.
+# Tables that only change on game days (postseason included) go idle after month 10: no games are played Nov-Feb. A World Series game in early
+# November is then not checked, which beats a false alarm every offseason.
+sport: mlb
+tables:
+  # ---------------------------------------------------------------------------------------------------------------- raw
+  - {id: mlb_2026_season.games, stage: raw, label: Games, written_by: [mlb-2026-daily], how: replace_partition, key: [game_pk, game_date], date_column: game_date,
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10]}, read_by: [/api/predictions, /api/predictions/:sport/slate],
+     notes: "Deleted by date and reloaded each run. The validator dedupes it (game_pk + game_date) inside the daily chain."}
+  - {id: mlb_2026_season.team_stats, stage: raw, label: Team stats, written_by: [mlb-2026-daily], how: replace_partition, key: [snapshot_date], date_column: snapshot_date,
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10,11]}}
+  - {id: mlb_2026_season.player_stats, stage: raw, label: Player stats, written_by: [mlb-2026-daily], how: replace_partition, key: [snapshot_date], date_column: snapshot_date,
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10,11]}}
+  - {id: mlb_2026_season.standings, stage: raw, label: Standings, written_by: [mlb-2026-daily], how: replace_partition, key: [snapshot_date], date_column: snapshot_date,
+     cadence: {kind: daily, max_age_hours: 36, months: [4,5,6,7,8,9]}, writes_every_run: false, read_by: [/api/standings],
+     notes: "Stops changing when the regular season ends (last change 2026-09-28)."}
+  - {id: mlb_2026_season.statcast_pitches, stage: raw, label: Statcast pitches, written_by: [mlb-2026-daily], how: replace_partition, key: [game_date], date_column: game_date,
+     cadence: {kind: daily, max_age_hours: 36, months: [3,4,5,6,7,8,9]}, writes_every_run: false,
+     notes: "Fetched from Baseball Savant. If Savant fails the step logs a warning and writes nothing, and the job still returns 200: freshness here is the only signal. 9 exact duplicate rows are a known validator warning (no auto-fix)."}
+  - {id: mlb_2026_season.transactions, stage: raw, label: Transactions, written_by: [mlb-2026-daily], how: append, cadence: {kind: daily, max_age_hours: 36, months: [3,4,5,6,7,8,9,10,11]},
+     writes_every_run: false, notes: "Plain append with no delete: running a day twice duplicates its transactions."}
+  - {id: mlb_2026_season.rosters, stage: raw, label: Rosters, written_by: [mlb-2026-roster-refresh, mlb-2026-daily], how: replace_partition, key: [snapshot_date], date_column: snapshot_date,
+     cadence: {kind: weekly, max_age_hours: 192, months: [3,4,5,6,7,8,9,10,11]}, writes_every_run: false, notes: "Mondays only (the roster job, and the daily chain when its target day is a Monday)."}
+  - {id: mlb_2026_season.teams, stage: raw, label: Teams, how: external, cadence: {kind: static}, notes: "Reference list of the 30 teams; loaded once."}
+  - {id: mlb_2026_season.lineups, stage: raw, label: Lineups, written_by: [pregame], how: append, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]},
+     notes: "Append with no delete (readers dedupe with QUALIFY). Written by each per-game task, ~90 minutes before first pitch."}
+  - {id: mlb_2026_season.news_articles, stage: raw, label: News articles, how: external, cadence: {kind: daily, max_age_hours: 36}, read_by: [/api/news],
+     notes: "NOT written by the ML pipeline. Some other writer (the backend's news sync is the likely one; UNVERIFIED) keeps it current."}
+  # ---------------------------------------------------------------------------------------------------------------- features
+  - {id: mlb_2026_season.game_features, stage: features, label: Game features (V7 base), written_by: [mlb-2026-daily], how: truncate,
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10,11]}, notes: "Rebuilt whole every run (WRITE_TRUNCATE): safe to re-run."}
+  - {id: mlb_2026_season.team_elo_ratings, stage: features, label: Team Elo, written_by: [mlb-2026-daily], how: upsert, key: [season, team_id],
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10]}, notes: "DELETE season then insert. A DELETE blocked by the streaming buffer is non-fatal (logged), so Elo can silently stay one day old."}
+  - {id: mlb_2026_season.game_v8_features, stage: features, label: V8 features, written_by: [mlb-2026-daily, pregame], how: upsert, key: [game_pk],
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10]}, writes_every_run: false,
+     notes: "DELETE by game_pk then streaming insert. If the delete is blocked (rows < ~90 min old) it proceeds INSERT-only, so a re-run inside that window can duplicate rows."}
+  - {id: mlb_2026_season.game_v10_features, stage: features, label: V10 features (production model input), written_by: [mlb-2026-daily, pregame], how: upsert, key: [game_pk],
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10]}, writes_every_run: false, read_by: [v10],
+     notes: "Same streaming-buffer caveat as V8. The production model reads this table (73 of its columns)."}
+  - {id: mlb_2026_season.matchup_features, stage: features, label: Matchup features, written_by: [pregame], how: append, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]},
+     notes: "Append with no delete."}
+  - {id: mlb_2026_season.matchup_v6_features, stage: features, label: Matchup V6 (legacy), how: upsert, cadence: {kind: static}, notes: "Last written 2026-04-06; only a backfill touches it."}
+  - {id: mlb_2026_season.matchup_v7_features, stage: features, label: Matchup V7, written_by: [pregame], how: upsert, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]}}
+  # ---------------------------------------------------------------------------------------------------------------- predictions
+  - {id: mlb_2026_season.game_predictions, stage: predictions, label: Game predictions (V10), written_by: [pregame], how: upsert, key: [game_pk, model_version, predicted_at],
+     date_column: game_date, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]},
+     read_by: [/api/predictions, /api/predictions/:sport/slate, /api/models/:sport/compare, /api/health/scheduler],
+     notes: "Several checkpoint rows per game are allowed; readers take the latest pregame row. A load job id derived from the content makes a retry a no-op (HTTP 409)."}
+  - {id: mlb_2026_season.game_scouting_reports, stage: predictions, label: Scouting reports, written_by: [pregame], how: upsert, key: [game_pk, game_date], date_column: game_date,
+     cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]}, read_by: [/api/scouting-reports], notes: "MERGE on game_pk + game_date. The hot/cold batter panel is known to be empty (missing source table)."}
+  - {id: mlb_2026_season.weekly_predictions, stage: predictions, label: Weekly predictions (retired), how: append, cadence: {kind: static},
+     notes: "Written only by the paused mlb-2026-weekly-predict job (V4 model). Nothing reads it."}
+  # ---------------------------------------------------------------------------------------------------------------- shadows
+  - {id: mlb_2026_season.game_predictions_logit3, stage: shadows, label: Logit3 shadow, written_by: [pregame], how: append, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]},
+     read_by: [logit3], notes: "Append only, table must exist (CREATE_NEVER)."}
+  - {id: mlb_2026_season.game_predictions_sim_blend, stage: shadows, label: PA-sim blend shadow, written_by: [pregame], how: append,
+     cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]}, read_by: [sim_blend], notes: "Opt-in per request; content-keyed job id makes retries no-ops."}
+  # ---------------------------------------------------------------------------------------------------------------- sims
+  - {id: mlb_2026_season.game_sim_distributions, stage: sims, label: Game sim distributions, written_by: [pregame], how: append, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]}}
+  - {id: mlb_2026_season.game_props_sim, stage: sims, label: Game props sim, written_by: [pregame], how: append, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]}}
+  - {id: mlb_2026_season.player_sim_projections, stage: sims, label: Player sim projections, written_by: [pregame], how: append, cadence: {kind: per_game, max_age_hours: 72, months: [3,4,5,6,7,8,9,10]}}
+  # ---------------------------------------------------------------------------------------------------------------- rankings
+  - {id: mlb_2026_season.power_rankings, stage: rankings, label: Power rankings, written_by: [mlb-2026-daily, mlb-2026-power-rankings], how: upsert, key: [season, team],
+     cadence: {kind: daily, max_age_hours: 30, months: [3,4,5,6,7,8,9,10,11]}, read_by: [/api/rankings/:sport], notes: "DELETE season then append; non-fatal inside the daily chain."}

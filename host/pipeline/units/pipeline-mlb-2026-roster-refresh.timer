@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: mlb-2026-roster-refresh (cron '0 3 * 3-11 1' America/New_York)
+
+[Timer]
+OnCalendar=Mon *-03..11-* 03:00:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@mlb-2026-roster-refresh.service
+
+[Install]
+WantedBy=timers.target

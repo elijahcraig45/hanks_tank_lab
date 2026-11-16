@@ -1,0 +1,50 @@
+# Fair parameter comparison: every retrain starts from 26,900 games (2015-2025) and walks forward through 2026.
+# start is after V10's own trained_at (2026-04-29) so the served model has not seen the games it is scored on.
+name: v10_param_sweep
+data: {sql_file: ../sql/mlb_v10_pregame.sql}
+history: {file: mlb_history_2015_2025.parquet, label: home_won}
+label: home_win
+date: game_date
+id: game_pk
+start: 2026-05-01
+timeout_s: 3000
+models:
+  - name: v10
+    version: {project: hankstank, model: game_outcome, version: v10}
+    parity: true
+columns:
+  - {name: prod, column: prod_prob, reference: true}
+  - {name: elo, column: elo_home_win_prob}
+retrain:
+  - name: v10_params            # V10's own hyperparameters, refit on history + 2026 so far
+    features_from: v10
+    family: xgboost
+    params: {n_estimators: 450, max_depth: 4, learning_rate: 0.035, subsample: 0.82, colsample_bytree: 0.82, min_child_weight: 4, reg_alpha: 0.05, reg_lambda: 1.5}
+    walk_forward: {min_train: 0, step: 200}
+  - name: xgb_d2
+    features_from: v10
+    family: xgboost
+    params: {n_estimators: 300, max_depth: 2, learning_rate: 0.05}
+    walk_forward: {min_train: 0, step: 200}
+  - name: xgb_d3_slow
+    features_from: v10
+    family: xgboost
+    params: {n_estimators: 600, max_depth: 3, learning_rate: 0.02, subsample: 0.8, colsample_bytree: 0.8, min_child_weight: 10}
+    walk_forward: {min_train: 0, step: 200}
+  - name: xgb_d6
+    features_from: v10
+    family: xgboost
+    params: {n_estimators: 300, max_depth: 6, learning_rate: 0.03, subsample: 0.8, colsample_bytree: 0.8}
+    walk_forward: {min_train: 0, step: 200}
+  - name: lgbm
+    features_from: v10
+    family: lightgbm
+    params: {n_estimators: 300, learning_rate: 0.03, num_leaves: 15, min_child_samples: 50, subsample: 0.8, colsample_bytree: 0.8}
+    walk_forward: {min_train: 0, step: 200}
+  - name: logreg
+    features_from: v10
+    family: logreg
+    params: {C: 0.05}
+    walk_forward: {min_train: 0, step: 200}
+thresholds: [0.5, 0.55, 0.6, 0.64]
+bootstrap: 2000

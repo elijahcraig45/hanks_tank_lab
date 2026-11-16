@@ -1,0 +1,49 @@
+# Loopback-only site. `tailscale serve --bg --https=8899 http://127.0.0.1:8899` publishes it on the tailnet.
+# Never publish with Funnel.
+{
+	admin off
+	auto_https off
+}
+
+# The site address must not name a host: `tailscale serve` forwards the tailnet hostname as the Host header, and a site
+# addressed `127.0.0.1` does not match it (Caddy answers an empty 200, which shows as a blank page). `bind` keeps it loopback-only.
+http://:8899 {
+	bind 127.0.0.1
+
+	handle /healthz {
+		reverse_proxy 127.0.0.1:8897
+	}
+
+	# Everything else must pass mllab's /auth first (Tailscale login; /api/* also needs X-Mllab-Secret).
+	handle {
+		forward_auth 127.0.0.1:8897 {
+			uri /auth
+		}
+
+		# Private model-health dashboard (static files written by `mllab health --build`).
+		handle_path /dash/* {
+			root * /mnt/appdata/mllab/health
+			file_server
+		}
+
+		handle /api/* {
+			reverse_proxy 127.0.0.1:8897
+		}
+
+		# The control app. Its page and API do their own access checks (login for reading; login + unlock + same-origin for any change), because
+		# 127.0.0.1:8897 is reachable without Caddy. The app is the home page; JupyterLab stays at /lab.
+		handle / {
+			redir * /app/
+		}
+		@app path /app /app/*
+		handle @app {
+			reverse_proxy 127.0.0.1:8897
+		}
+		handle /app-api/* {
+			reverse_proxy 127.0.0.1:8897
+		}
+
+		# JupyterLab (websockets work through reverse_proxy). Jupyter's own token is the second factor.
+		reverse_proxy 127.0.0.1:8898
+	}
+}

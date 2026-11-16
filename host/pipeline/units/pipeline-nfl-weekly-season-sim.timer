@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: nfl-weekly-season-sim (cron '30 7 * 9-12,1 2' America/New_York)
+
+[Timer]
+OnCalendar=Tue *-01,09..12-* 07:30:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@nfl-weekly-season-sim.service
+
+[Install]
+WantedBy=timers.target

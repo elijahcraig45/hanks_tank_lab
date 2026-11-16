@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: cfb-weekly-season-sim (cron '0 8 * 8-12,1 0' America/New_York)
+
+[Timer]
+OnCalendar=Sun *-01,08..12-* 08:00:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@cfb-weekly-season-sim.service
+
+[Install]
+WantedBy=timers.target

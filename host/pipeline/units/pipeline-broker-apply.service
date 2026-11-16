@@ -1,0 +1,18 @@
+[Unit]
+Description=Pipeline broker: apply the mllab app's requests (root; validates untrusted request files)
+
+[Service]
+Type=oneshot
+User=root
+Environment=PYTHONPATH=/opt/pipeline/lib
+Environment=PIPELINE_RELEASE=/opt/pipeline/current
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 NUMEXPR_NUM_THREADS=1
+ExecStart=/opt/pipeline/venv/bin/python -m mllab.pipeline.broker apply
+TimeoutStartSec=2min
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/etc/pipeline/jobs.d /mnt/appdata/mllab
+SyslogIdentifier=pipeline-broker-apply

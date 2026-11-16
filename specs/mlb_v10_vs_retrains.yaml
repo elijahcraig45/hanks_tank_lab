@@ -1,0 +1,33 @@
+# Registry copy of V10 vs Elo vs three walk-forward retrains, on completed 2026 games.
+# Retrains only ever train on games dated strictly before the block they predict.
+name: v10_vs_retrains
+data: {sql_file: ../sql/mlb_v10_pregame.sql}
+label: home_win
+date: game_date
+id: game_pk
+start: 2026-04-18
+models:
+  - name: v10
+    version: {project: hankstank, model: game_outcome, version: v10}
+    parity: true              # must reproduce prod's served probability
+columns:
+  - {name: prod, column: prod_prob, reference: true}
+  - {name: elo, column: elo_home_win_prob}
+retrain:
+  - name: v10_params        # V10's own hyperparameters, refit walk-forward on the same features
+    features_from: v10
+    family: xgboost
+    params: {n_estimators: 450, max_depth: 4, learning_rate: 0.035, subsample: 0.82, colsample_bytree: 0.82, min_child_weight: 4, reg_alpha: 0.05, reg_lambda: 1.5}
+    walk_forward: {min_train: 500, step: 100}
+  - name: shallow
+    features_from: v10
+    family: xgboost
+    params: {n_estimators: 200, max_depth: 2, learning_rate: 0.05}
+    walk_forward: {min_train: 500, step: 100}
+  - name: logreg
+    features_from: v10
+    family: logreg
+    params: {C: 0.1}
+    walk_forward: {min_train: 500, step: 100}
+thresholds: [0.5, 0.55, 0.6, 0.64]
+bootstrap: 2000

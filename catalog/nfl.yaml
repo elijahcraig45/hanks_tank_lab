@@ -1,0 +1,37 @@
+# NFL: from hanks_tank_ml nfl/main.py, bq_io.py, backfill_nfl_history.py, stats/build.py, season_sim/store.py, rankings/*. Weekly cadence: ingest Tue 06:00 ET, score Tue 07:00,
+# season sim Tue 07:30, predict Wed 06:00. Season months 9-12 and 1-2.
+sport: nfl
+tables:
+  - {id: nfl_historical.games, stage: raw, label: Games and results, written_by: [nfl-weekly-ingest], how: truncate, key: [game_id, season], date_column: game_date,
+     cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [/api/football/:sport/accuracy, score],
+     notes: "Rebuilt whole every ingest from nflverse. If nflverse is down, a cached copy is used (on Cloud Functions there is no cache after a cold start). The score job reads this: it must finish first."}
+  - {id: nfl_historical.teams, stage: raw, label: Teams, written_by: [nfl-weekly-ingest], how: truncate, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}}
+  - {id: nfl_historical.team_week_epa, stage: raw, label: Team EPA by week, written_by: [nfl-weekly-ingest], how: upsert, key: [season, team, week],
+     cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [xgb, ridge], notes: "Replaces the current season only. Its latest week should match the latest played week."}
+  - {id: nfl_historical.drives, stage: raw, label: Drives, written_by: [nfl-weekly-ingest], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [drive_sim]}
+  - {id: nfl_season.player_season_stats, stage: raw, label: Player season stats, written_by: [nfl-weekly-ingest], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]},
+     read_by: [/api/football/:sport/stats/players]}
+  - {id: nfl_season.stat_leaders, stage: raw, label: Stat leaders, written_by: [nfl-weekly-ingest], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]},
+     read_by: [/api/football/:sport/stats/leaders]}
+  - {id: pickem.games, stage: raw, label: Pick'em games (NFL and CFB), written_by: [nfl-weekly-ingest, cfb-weekly-cfbd], how: upsert, key: [sport, season],
+     cadence: {kind: weekly, max_age_hours: 192, months: [8,9,10,11,12,1,2]}, read_by: [/api/pickem], notes: "Shared by both football sports. NFL via ingest (Tue), CFB via the cfbd job (Sun)."}
+  - {id: nfl_season.game_predictions, stage: predictions, label: Game predictions (headline - margin ridge from 2026 week 9, XGBoost before), written_by: [nfl-weekly-predict, nfl-weekly-score], how: upsert, key: [game_id, season, week],
+     date_column: game_date, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]},
+     read_by: [/api/football/:sport/predictions, /api/football/:sport/accuracy, /api/models/:sport/compare, /api/health/scheduler],
+     notes: "predict replaces the week's unplayed games; score UPDATEs home_won / prediction_correct in place from nfl_historical.games (not safe before ingest has run).", writes_every_run: false}
+  - {id: nfl_season.game_predictions_ridge_shadow, stage: shadows, label: Margin ridge (own table), written_by: [nfl-weekly-predict], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [ridge],
+     notes: "The ridge's whole live record since 2026 week 3. Since week 9 it holds the same rows as the headline game_predictions."}
+  - {id: nfl_season.game_predictions_xgb_shadow, stage: shadows, label: XGBoost (former headline), written_by: [nfl-weekly-predict, nfl-weekly-score], how: upsert,
+     cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [xgb],
+     notes: "Seeded 2026-11-03 with every XGBoost row from game_predictions (scripts/gcp/football/ridge_headline_swap.sql); written weekly since; scored with the headline."}
+  - {id: nfl_season.game_predictions_xgb_reg_shadow, stage: shadows, label: Regularized XGBoost shadow, written_by: [nfl-weekly-predict], how: upsert, optional: true,
+     cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, notes: "Added 2026-10-03; read by nothing yet. Compare it with the headline on scored games."}
+  - {id: nfl_season.game_predictions_drive_sim, stage: shadows, label: Drive simulator shadow, written_by: [nfl-weekly-predict], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [drive_sim]}
+  - {id: nfl_season.fpi_game_predictions, stage: shadows, label: ESPN FPI snapshots, written_by: [nfl-weekly-ingest, nfl-weekly-predict], how: append, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]},
+     read_by: [fpi], notes: "Append-only snapshots of games in the next 8 days. A failure here is non-fatal and only visible in the run's JSON.", writes_every_run: false}
+  - {id: nfl_season.game_sim_distributions, stage: sims, label: Game sim distributions, written_by: [nfl-weekly-predict], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}}
+  - {id: nfl_season.season_sim_team, stage: sims, label: Season sim, per team, written_by: [nfl-weekly-season-sim], how: upsert, key: [season, as_of_week, team],
+     cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1]}, read_by: [/api/season-sim/:sport], notes: "One snapshot per as_of_week, kept. Must exist before the job runs. Skipped once the postseason starts."}
+  - {id: nfl_season.season_sim_bracket, stage: sims, label: Season sim, bracket, written_by: [nfl-weekly-season-sim], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1]}, read_by: [/api/season-sim/:sport]}
+  - {id: nfl_season.season_sim_games, stage: sims, label: Season sim, games, written_by: [nfl-weekly-season-sim], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1]}, read_by: [/api/season-sim/:sport]}
+  - {id: nfl_season.power_rankings, stage: rankings, label: Power rankings, written_by: [nfl-weekly-ingest], how: upsert, cadence: {kind: weekly, max_age_hours: 192, months: [9,10,11,12,1,2]}, read_by: [/api/rankings/:sport]}

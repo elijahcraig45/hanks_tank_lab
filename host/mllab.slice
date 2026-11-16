@@ -1,0 +1,9 @@
+[Unit]
+Description=mllab resource slice (keeps training from starving Immich/Jellyfin)
+
+[Slice]
+MemoryMax=6G
+MemoryHigh=5G
+CPUQuota=200%
+CPUWeight=20
+TasksMax=512

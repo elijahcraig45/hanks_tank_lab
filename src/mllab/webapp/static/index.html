@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mllab control</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%232f5f9e%27/%3E%3Cpath d=%27M3 12V4l5 5 5-5v8%27 stroke=%27white%27 stroke-width=%271.6%27 fill=%27none%27/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/app/static/app.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/overview" aria-label="mllab home">mllab</a>
+  <nav id="nav" aria-label="Sections"></nav>
+  <div class="top-right">
+    <span id="chips" class="chips"></span>
+    <button id="lockbtn" class="btn ghost" type="button"></button>
+    <a class="btn" href="/lab" target="_blank" rel="noopener">JupyterLab ↗</a>
+  </div>
+</header>
+<div id="banner" class="banner" hidden></div>
+<main id="view" tabindex="-1"><p class="muted pad">Loading…</p></main>
+<div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+<dialog id="dlg"></dialog>
+<noscript><p class="pad">This page needs JavaScript.</p></noscript>
+<script src="/app/static/app.js"></script>
+</body>
+</html>

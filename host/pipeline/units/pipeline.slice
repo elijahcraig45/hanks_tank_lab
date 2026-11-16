@@ -1,0 +1,7 @@
+[Unit]
+Description=Pipeline jobs (one resource cap for all of them)
+
+[Slice]
+MemoryMax=6G
+CPUQuota=400%
+TasksMax=2048

@@ -1,0 +1,9 @@
+[Unit]
+Description=Pipeline broker: watch for requests from the mllab app
+
+[Path]
+PathExistsGlob=/mnt/appdata/mllab/spool/pipe-*.json
+Unit=pipeline-broker-apply.service
+
+[Install]
+WantedBy=multi-user.target

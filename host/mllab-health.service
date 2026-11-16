@@ -1,0 +1,10 @@
+[Unit]
+Description=mllab health probe -> Uptime Kuma push monitor
+
+[Service]
+Type=oneshot
+User=mllab
+Group=mllab
+EnvironmentFile=/etc/mllab/env
+ExecStart=/usr/bin/python3 /usr/local/bin/mllab-health
+Nice=19

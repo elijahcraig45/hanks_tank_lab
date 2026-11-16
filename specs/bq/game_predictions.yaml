@@ -1,0 +1,15 @@
+table: mlb_2026_season.game_predictions
+key: [game_pk, predicted_at]
+date_column: game_date
+max_staleness_days: 4
+freshness_months: [3, 4, 5, 6, 7, 8, 9, 10]   # no games Nov-Feb; a World Series game in early November is not checked
+min_rows: 3000
+columns:
+  - {name: game_pk, type: INTEGER, nullable: false}
+  - {name: home_win_probability, type: FLOAT, nullable: false, min: 0, max: 1}
+  - {name: model_version, type: STRING, nullable: false}
+  # Measured 2026-09-29: 9.2% of ROWS have a null game_time_utc, but they belong to games that also have a proper
+  # pre-game row; only 13 of 2,427 completed games are lost to it (the pregame SQL needs predicted_at < game_time_utc).
+  # The limit is set just above today's value so a worsening trips the check.
+  - {name: game_time_utc, type: TIMESTAMP, max_null_rate: 0.12}
+  - {name: predicted_at, type: TIMESTAMP, nullable: false}

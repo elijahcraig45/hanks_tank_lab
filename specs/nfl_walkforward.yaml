@@ -1,0 +1,42 @@
+# NFL: the repo's own model recipes (models.build_xgb / build_lr, zero-imputation) walked forward season by season,
+# against Elo and the always-home prior. Mirrors train_nfl_models.py: train on every earlier season, score the next one,
+# last 8 seasons (2017-2024). 2025 is the repo's TOUCH-ONCE holdout: the export stops at the end of the 2024 season
+# (by SEASON, not by date: 2024's week 18 and playoffs are played in January 2025, so a date cutoff would silently drop 29 games).
+# Input: `mllab data promote <export job> nfl_features.parquet nfl_features.parquet` after scripts/football/stage_export.sh.
+name: nfl_walkforward
+data: {file: nfl_features.parquet}
+env_lock: ../scripts/football/requirements.lock
+label: home_won
+date: game_date
+id: game_id
+start: 2006-01-01
+timeout_s: 3000
+columns:
+  - {name: elo, column: elo_home_win_prob}
+retrain:
+  - name: xgb_pure              # the repo's HEADLINE variant: no market columns
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+    family: xgboost
+    impute: zero
+    params: {max_depth: 3, min_child_weight: 20, learning_rate: 0.03, n_estimators: 400, subsample: 0.8, colsample_bytree: 0.6, gamma: 0.5, reg_lambda: 5.0, tree_method: hist, n_jobs: 2}
+    walk_forward: {group: season, min_groups: 11}
+  - name: lr_pure
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+    family: logreg
+    impute: zero
+    params: {C: 0.1}
+    walk_forward: {group: season, min_groups: 11}
+  - name: xgb_market            # includes spread/total: roughly 90% Vegas, reported separately by the repo too
+    features: {all_numeric: true, exclude: [season, week]}
+    family: xgboost
+    impute: zero
+    params: {max_depth: 3, min_child_weight: 20, learning_rate: 0.03, n_estimators: 400, subsample: 0.8, colsample_bytree: 0.6, gamma: 0.5, reg_lambda: 5.0, tree_method: hist, n_jobs: 2}
+    walk_forward: {group: season, min_groups: 11}
+  - name: lr_market
+    features: {all_numeric: true, exclude: [season, week]}
+    family: logreg
+    impute: zero
+    params: {C: 0.1}
+    walk_forward: {group: season, min_groups: 11}
+thresholds: [0.5, 0.55, 0.6, 0.65]
+bootstrap: 2000

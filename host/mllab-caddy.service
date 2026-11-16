@@ -1,0 +1,17 @@
+[Unit]
+Description=Caddy front for mllab (loopback :8899)
+After=network.target mllab-api.service
+
+[Service]
+User=mllab
+Group=mllab
+Slice=mllab.slice
+ExecStart=/usr/local/bin/caddy run --config /etc/mllab/Caddyfile --adapter caddyfile
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

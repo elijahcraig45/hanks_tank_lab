@@ -1,0 +1,49 @@
+# Does tuning help? Random search (40 candidates) using ONLY seasons 2006-2016: candidates are ranked by an inner walk-forward over
+# 2014-2016, the winner is frozen, and it is then scored on 2017-2024, seasons no candidate ever saw. Compared with the repo's default
+# settings and Elo on the same games. The winner's inner score is best-of-40 and optimistic; only the outer numbers count.
+name: nfl_tune
+data: {file: nfl_features.parquet}
+env_lock: ../scripts/football/requirements.lock
+label: home_won
+date: game_date
+id: game_id
+start: 2006-01-01
+timeout_s: 3000
+columns:
+  - {name: elo, column: elo_home_win_prob}
+retrain:
+  - name: xgb_default
+    features: &feats {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+    family: xgboost
+    impute: zero
+    params: &base {max_depth: 3, min_child_weight: 20, learning_rate: 0.03, n_estimators: 400, subsample: 0.8, colsample_bytree: 0.6, gamma: 0.5, reg_lambda: 5.0, tree_method: hist, n_jobs: 2}
+    seeds: [1, 2, 3]
+    walk_forward: &wf {group: season, min_groups: 11}
+  - name: xgb_tuned
+    features: *feats
+    family: xgboost
+    impute: zero
+    params: *base
+    seeds: [1, 2, 3]
+    walk_forward: *wf
+    tune:
+      trials: 40
+      inner_folds: 3
+      seed: 7
+      space:
+        max_depth: {low: 2, high: 5, type: int}
+        learning_rate: {low: 0.01, high: 0.1, log: true}
+        n_estimators: {low: 100, high: 600, type: int}
+        min_child_weight: {low: 5, high: 40, type: int}
+        subsample: {low: 0.6, high: 1.0}
+        colsample_bytree: {low: 0.3, high: 1.0}
+        gamma: {low: 0.0, high: 2.0}
+        reg_lambda: {low: 1.0, high: 20.0, log: true}
+  - name: lr
+    features: *feats
+    family: logreg
+    impute: zero
+    params: {C: 0.1}
+    walk_forward: *wf
+thresholds: [0.5, 0.55, 0.6, 0.65]
+bootstrap: 2000

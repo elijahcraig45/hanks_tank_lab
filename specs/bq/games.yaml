@@ -1,0 +1,14 @@
+# mlb_2026_season.games: the collector inserts a skeleton row when scheduled and a second row when final,
+# so duplicates on game_pk are EXPECTED here; the pregame SQL dedupes on synced_at. Key is game_pk + synced_at.
+table: mlb_2026_season.games
+key: [game_pk, synced_at]
+date_column: game_date
+max_staleness_days: 4
+freshness_months: [3, 4, 5, 6, 7, 8, 9, 10]   # no games Nov-Feb; a World Series game in early November is not checked
+min_rows: 2000
+columns:
+  - {name: game_pk, type: INTEGER, nullable: false}
+  - {name: game_date, type: DATE, nullable: false}
+  - {name: status, type: STRING, nullable: false}
+  - {name: home_score, type: INTEGER, min: 0, max: 40}
+  - {name: away_score, type: INTEGER, min: 0, max: 40}

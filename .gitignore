@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+dist/
+catboost_info/
+
+# Claude Code session dumps
+2026-*-this-session-*.txt

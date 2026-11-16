@@ -1,0 +1,18 @@
+# Snapshot of the repo's CFB FCS XGBoost recipe, trained on seasons through 2023 and scored on the 2024 season (never seen in training).
+# The repo does not save football models (it refits every run), so this registers a dated, hash-verified artifact for audit, parity and rollback.
+# NOT deployable as-is: production refits weekly. 2025 is the repo's touch-once holdout and is not in the data.
+name: cfb_fcs_xgb_2023
+data: {file: cfb_features.parquet}
+env_lock: ../scripts/football/requirements.lock
+filter: {column: division, equals: fcs}
+label: home_won
+date: game_date
+id: game_id
+features: {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+family: xgboost
+impute: zero
+params: {max_depth: 3, min_child_weight: 20, learning_rate: 0.03, n_estimators: 400, subsample: 0.8, colsample_bytree: 0.6, gamma: 0.5, reg_lambda: 5.0, tree_method: hist, n_jobs: 2, random_state: 42}
+train_end: 2024-06-30
+columns:
+  - {name: elo, column: elo_home_win_prob}
+timeout_s: 1800

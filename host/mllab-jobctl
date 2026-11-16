@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Root-owned spool consumer. Runs from mllab-spool.service when mllab drops <id>.start / <id>.stop files.
+# The spool is UNTRUSTED input written by the mllab user: every value is validated here, nothing from it is
+# ever executed or sourced, and jobs are always started as mllab (never root).
+set -uo pipefail
+
+ROOT=${MLLAB_ROOT:-/mnt/appdata/mllab}
+RUN_AS=${MLLAB_USER:-mllab}
+DRY=${DRY_RUN:-0}
+MAX_MEM=4096; MAX_CPU=200; MAX_T=21600
+SPOOL="$ROOT/spool"; JOBS="$ROOT/jobs"
+
+log() { echo "mllab-jobctl: $*"; }
+sysrun() { if [ "$DRY" = 1 ]; then echo "DRY systemd-run $*"; else systemd-run "$@"; fi; }
+sysctl_() { if [ "$DRY" = 1 ]; then echo "DRY systemctl $*"; else systemctl "$@"; fi; }
+
+valid_dir() { # exists, real dir (not a symlink), owned by the job user
+  local d=$1
+  [ -d "$d" ] && [ ! -L "$d" ] && [ -n "$(find "$d" -maxdepth 0 -user "$RUN_AS" 2>/dev/null)" ]
+}
+
+shopt -s nullglob
+for f in "$SPOOL"/*.start "$SPOOL"/*.stop; do
+  base=$(basename "$f"); id=${base%.*}; kind=${base##*.}
+  if [ -L "$f" ] || [ ! -f "$f" ] || ! [[ "$id" =~ ^[a-z0-9-]{8,64}$ ]]; then
+    log "rejecting $base"; rm -f -- "$f"; continue
+  fi
+  dir="$JOBS/$id"
+  if ! valid_dir "$dir" || [ ! -f "$dir/run.sh" ] || [ -L "$dir/run.sh" ]; then
+    log "rejecting $id: bad job dir"; rm -f -- "$f"; continue
+  fi
+  case "$kind" in
+    stop)
+      sysctl_ stop "mllab-job-$id.service" 2>/dev/null || true
+      log "stopped $id"
+      ;;
+    start)
+      read -r mem cpu t extra < <(head -c 200 "$f")
+      if [ -n "${extra:-}" ] || ! [[ "$mem" =~ ^[0-9]{1,5}$ && "$cpu" =~ ^[0-9]{1,4}$ && "$t" =~ ^[0-9]{1,6}$ ]] \
+         || [ "$mem" -lt 64 ] || [ "$mem" -gt "$MAX_MEM" ] || [ "$cpu" -lt 10 ] || [ "$cpu" -gt "$MAX_CPU" ] \
+         || [ "$t" -lt 1 ] || [ "$t" -gt "$MAX_T" ]; then
+        log "rejecting $id: limits out of range"; rm -f -- "$f"; continue
+      fi
+      sysrun --unit="mllab-job-$id" --slice=mllab.slice --uid="$RUN_AS" --collect --no-block \
+        -p MemoryMax="${mem}M" -p MemorySwapMax=0 -p CPUQuota="${cpu}%" -p RuntimeMaxSec="$t" -p Nice=15 \
+        -p NoNewPrivileges=yes -p ProtectHome=yes -p PrivateTmp=yes -p ProtectSystem=strict \
+        -p ReadWritePaths="$ROOT /var/lib/mllab" -p EnvironmentFile=/etc/mllab/env \
+        -- /bin/bash "$dir/run.sh"
+      log "started $id (mem ${mem}M cpu ${cpu}% timeout ${t}s)"
+      ;;
+  esac
+  rm -f -- "$f"
+done
+exit 0

@@ -1,0 +1,7 @@
+# What backtest_worker.py needs, pinned to the same versions as hanks_tank_ml/src/nfl/requirements.txt.
+pandas==2.3.3
+numpy==2.4.0
+pyarrow==22.0.0
+scikit-learn==1.8.0
+xgboost==3.1.3
+db-dtypes==1.5.0

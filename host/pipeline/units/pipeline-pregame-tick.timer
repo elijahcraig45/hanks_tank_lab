@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline: look for due per-game tasks every minute, March-November
+
+[Timer]
+OnCalendar=*-03..11-* *:*:00 America/New_York
+Persistent=false
+AccuracySec=1s
+Unit=pipeline-pregame-tick.service
+
+[Install]
+WantedBy=timers.target

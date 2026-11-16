@@ -1,0 +1,19 @@
+[Unit]
+Description=mllab weekly data checks and backtests
+After=network-online.target mllab-spool.path
+
+[Service]
+Type=oneshot
+User=mllab
+Group=mllab
+Slice=mllab.slice
+Nice=15
+EnvironmentFile=/etc/mllab/env
+WorkingDirectory=/opt/mllab/src
+ExecStart=/opt/mllab/venv/bin/mllab weekly --config /opt/mllab/src/specs/weekly.yaml
+TimeoutStartSec=5400
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/mnt/appdata/mllab /var/lib/mllab

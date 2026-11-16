@@ -1,0 +1,9 @@
+# Run weekly by mllab-weekly.timer. Data checks fail the run (and turn the Kuma monitor red via mllab-health);
+# a backtest whose verdict changes since last week is recorded in audit/weekly.json but does not fail it.
+bq_checks:
+  - specs/bq/games.yaml
+  - specs/bq/game_predictions.yaml
+  - specs/bq/game_v10_features.yaml
+backtests:
+  - specs/mlb_v10_param_sweep.yaml
+backtest_timeout_s: 3000

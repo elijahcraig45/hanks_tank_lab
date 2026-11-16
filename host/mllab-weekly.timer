@@ -1,0 +1,11 @@
+[Unit]
+Description=mllab weekly data checks and backtests
+
+[Timer]
+# Monday 06:30 local: after the 04:00 ET pipeline and Immich's midnight jobs, before the day starts
+OnCalendar=Mon *-*-* 06:30:00
+Persistent=true
+RandomizedDelaySec=600
+
+[Install]
+WantedBy=timers.target

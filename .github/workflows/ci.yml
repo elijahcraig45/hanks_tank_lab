@@ -1,0 +1,29 @@
+name: ci
+
+# The tests are the check: pull requests into master run the whole suite. (git-guard refuses to merge a PR whose checks cannot be verified, and before this file
+# existed there were none.)
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        # The declared dependencies plus what the tests import for the model plugins and the deploy bundle (found by running the suite in a clean environment).
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" scikit-learn xgboost lightgbm scipy
+      - name: Test
+        run: python -m pytest -q -p no:cacheprovider

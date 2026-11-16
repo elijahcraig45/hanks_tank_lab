@@ -1,0 +1,8 @@
+[Unit]
+Description=mllab nightly backup (registry, audit log, db)
+
+[Service]
+Type=oneshot
+Nice=19
+IOSchedulingClass=idle
+ExecStart=/usr/local/bin/mllab-backup

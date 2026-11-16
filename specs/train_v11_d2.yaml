@@ -1,0 +1,17 @@
+# Candidate, NOT a recommendation: the sweep found no setting distinguishable from V10 (all CIs span 0).
+# Trains on 2015-2025 history + 2026 through Aug 31, scored on September, which it never sees.
+name: v11_d2
+data: {sql_file: ../sql/mlb_v10_pregame.sql}
+history: {file: mlb_history_2015_2025.parquet, label: home_won}
+label: home_win
+date: game_date
+id: game_pk
+start: 2026-04-18
+features_from: {project: hankstank, model: game_outcome, version: v10}
+family: xgboost
+params: {n_estimators: 300, max_depth: 2, learning_rate: 0.05}
+train_end: 2026-08-31
+columns:
+  - {name: prod, column: prod_prob}
+  - {name: elo, column: elo_home_win_prob}
+timeout_s: 1800

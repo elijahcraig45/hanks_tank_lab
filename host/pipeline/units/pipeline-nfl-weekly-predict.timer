@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: nfl-weekly-predict (cron '0 6 * 9-12,1,2 3' America/New_York)
+
+[Timer]
+OnCalendar=Wed *-01..02,09..12-* 06:00:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@nfl-weekly-predict.service
+
+[Install]
+WantedBy=timers.target

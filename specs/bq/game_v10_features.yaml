@@ -1,0 +1,13 @@
+# Several rows per game are normal (recomputed as lineups firm up); key includes computed_at.
+table: mlb_2026_season.game_v10_features
+key: [game_pk, computed_at]
+date_column: game_date
+max_staleness_days: 4
+freshness_months: [3, 4, 5, 6, 7, 8, 9, 10]   # no games Nov-Feb; a World Series game in early November is not checked
+min_rows: 3000
+columns:
+  - {name: game_pk, type: INTEGER, nullable: false}
+  - {name: computed_at, type: TIMESTAMP, nullable: false}
+  - {name: elo_home_win_prob, type: FLOAT, max_null_rate: 0.02, min: 0, max: 1}
+  - {name: home_win_pct_season, type: FLOAT, max_null_rate: 0.1, min: 0, max: 1}
+  - {name: home_runs_scored_10g, type: FLOAT, max_null_rate: 0.1, min: 0}

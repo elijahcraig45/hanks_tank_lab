@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline: plan per-game tasks every 30 min, 8:00-23:30 ET, March-November
+
+[Timer]
+OnCalendar=*-03..11-* 08..23:00,30:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-pregame-plan.service
+
+[Install]
+WantedBy=timers.target

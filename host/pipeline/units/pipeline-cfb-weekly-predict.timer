@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: cfb-weekly-predict (cron '0 6 * 8-12,1 2' America/New_York)
+
+[Timer]
+OnCalendar=Tue *-01,08..12-* 06:00:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@cfb-weekly-predict.service
+
+[Install]
+WantedBy=timers.target

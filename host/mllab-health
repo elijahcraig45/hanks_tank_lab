@@ -1,0 +1,183 @@
+#!/usr/bin/env python3
+"""mllab health probe -> Uptime Kuma push monitor (same pattern as pihome-health).
+
+Checks: units active, /healthz through Caddy, auth still FAILS CLOSED (a missing header must give 401),
+and the job spool is not stuck. It also reports the pipeline and the data (read from the control app on loopback): a Live job whose last run failed, a pipeline
+broker that stopped publishing, and tables that are stale, missing, or not updated by a Live job that ran. Pushes up/down with a message. Stdlib only.
+"""
+import calendar
+import glob
+import json
+import os
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
+
+KUMA = os.environ.get("MLLAB_KUMA_URL", "http://127.0.0.1:3001")
+TOKEN = os.environ.get("MLLAB_KUMA_PUSH_TOKEN", "")
+ROOT = os.environ.get("MLLAB_ROOT", "/mnt/appdata/mllab")
+MAX_WEEKLY_AGE_DAYS = int(os.environ.get("MLLAB_MAX_WEEKLY_AGE_DAYS", "10"))
+MAX_KEY_AGE_DAYS = int(os.environ.get("MLLAB_MAX_KEY_AGE_DAYS", "90"))
+KEY_FILE = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS", "")
+UNITS = ["mllab-api", "mllab-jupyter", "mllab-caddy", "mllab-spool.path"]
+
+
+def status(url, headers=None):
+    try:
+        return urllib.request.urlopen(urllib.request.Request(url, headers=headers or {}), timeout=5).status
+    except urllib.error.HTTPError as e:
+        return e.code
+    except Exception:
+        return None
+
+
+def pipeline_problems(state, now):
+    """Problems in the broker's snapshot (pipeline-status/state.json). Pure, so it is tested without a host. `now` is epoch seconds."""
+    out = []
+    try:
+        taken = calendar.timegm(time.strptime(state["taken_at"][:19], "%Y-%m-%dT%H:%M:%S"))  # the snapshot is UTC; mktime would read it as local time
+    except (KeyError, ValueError):
+        return ["pipeline snapshot has no readable time"]
+    if now - taken > 300:
+        out.append(f"pipeline broker stopped publishing ({(now - taken) / 60:.0f} min old)")
+    for j in state.get("jobs", []):
+        last = j.get("last") or {}
+        if j.get("mode") == "live" and last.get("mode") == "live" and last.get("ok") is False:
+            out.append(f"{j['name']} last live run FAILED ({str(last.get('error') or 'see its log')[:50]})")
+    pg = state.get("pregame") or {}
+    live = (pg.get("stores") or {}).get("live") or {}
+    failed = (live.get("counts") or {}).get("failed", 0)
+    if pg.get("mode") == "live" and failed:  # the per-game path has no other alarm: a failed checkpoint is a prediction that did not happen
+        out.append(f"per-game MLB: {failed} task(s) failed")
+    return out
+
+
+def data_problems(data):
+    """Problems in the control app's data map (/app-api/data). Late tables are not reported: a table only a few hours behind is not worth waking anyone for."""
+    if not data.get("available"):
+        return [f"data map unavailable: {str(data.get('error', '?'))[:80]}"]
+    bad = [(sp, t) for sp, s in data.get("sports", {}).items() for t in s.get("tables", []) if t.get("status") in ("stale", "missing", "unchanged")]
+    if not bad:
+        return []
+    words = {"stale": "stale", "missing": "missing", "unchanged": "not updated"}
+    names = "; ".join(f"{sp} {t['label'].lower()} {words[t['status']]}" for sp, t in bad[:3])
+    return [f"data: {names}" + (f" and {len(bad) - 3} more" if len(bad) > 3 else "")]
+
+
+def app_get(path, timeout=30):
+    """The control app on loopback, as the allowed login (read-only endpoints; the app's own checks apply)."""
+    req = urllib.request.Request(f"http://127.0.0.1:8897{path}", headers={"Tailscale-User-Login": os.environ.get("MLLAB_ALLOWED_LOGIN", "")})
+    return json.load(urllib.request.urlopen(req, timeout=timeout))
+
+
+DATA_FAIL_LIMIT = int(os.environ.get("MLLAB_DATA_FAIL_LIMIT", "3"))
+
+
+def data_check(fetch, count_file, limit=DATA_FAIL_LIMIT):
+    """data_problems(fetch()), but a failure to LOOK is only reported once it has happened `limit` runs in a row.
+
+    The data map runs BigQuery metadata queries and now and then takes longer than the probe waits (about ten blips a week,
+    each gone two minutes later). Retry once with a longer wait first; if it still fails, count it in `count_file` and stay
+    quiet until it persists. A run that cannot write the count reports at once, so a broken state file cannot hide anything.
+    """
+    err = None
+    for timeout in (30, 60):
+        try:
+            data = fetch(timeout)
+            break
+        except Exception as e:  # noqa: BLE001
+            err = e
+    else:
+        try:
+            try:
+                n = int(open(count_file).read().strip() or 0) + 1
+            except FileNotFoundError:
+                n = 1
+            open(count_file, "w").write(str(n))
+        except (OSError, ValueError):
+            n = limit
+        return [f"data check failed ({type(err).__name__}) {n} runs in a row"] if n >= limit else []
+    try:
+        open(count_file, "w").write("0")
+    except OSError:
+        pass
+    return data_problems(data)
+
+
+def problems():
+    out = []
+    for u in UNITS:
+        if subprocess.run(["systemctl", "is-active", "--quiet", u]).returncode != 0:
+            out.append(f"{u} not active")
+    if status("http://127.0.0.1:8899/healthz") != 200:
+        out.append("healthz failed")
+    if status("http://127.0.0.1:8897/auth") != 401:  # no headers must be refused; anything else means auth is open or down
+        out.append("auth is not failing closed")
+    now = time.time()
+    weekly = os.path.join(ROOT, "audit", "weekly.json")
+    if os.path.exists(weekly):  # only once the weekly job has ever run: an unconfigured lab is not an incident
+        try:
+            d = json.load(open(weekly))
+            age = (now - os.path.getmtime(weekly)) / 86400
+            if age > MAX_WEEKLY_AGE_DAYS:
+                out.append(f"weekly run is {age:.0f} days old (limit {MAX_WEEKLY_AGE_DAYS}): is mllab-weekly.timer running?")
+            elif not d.get("ok", True):
+                out.append("weekly run failed: " + "; ".join(d.get("errors", ["see audit/weekly.json"])[:2]))
+        except (OSError, ValueError):
+            out.append("weekly.json is unreadable")
+    if KEY_FILE and os.path.exists(KEY_FILE):  # the installer/rotation writes a fresh file, so mtime is the key's install date
+        age = (now - os.path.getmtime(KEY_FILE)) / 86400
+        if age > MAX_KEY_AGE_DAYS:
+            out.append(f"service-account key is {age:.0f} days old (limit {MAX_KEY_AGE_DAYS}): run gcp-maintenance.sh rotate-key")
+    try:  # the pipeline and the data: a failure to look is itself reported, not silently skipped
+        state = json.load(open(os.path.join(ROOT, "pipeline-status", "state.json")))
+        out += pipeline_problems(state, now)
+    except (OSError, ValueError) as e:
+        out.append(f"pipeline status unreadable ({type(e).__name__})")
+    out += data_check(lambda t: app_get("/app-api/data", t), os.path.join(ROOT, "health", "data_fail_count"))
+    stuck = [f for f in glob.glob(f"{ROOT}/spool/*.start") + glob.glob(f"{ROOT}/spool/*.stop") if now - os.path.getmtime(f) > 120]
+    if stuck:
+        out.append(f"{len(stuck)} job request(s) stuck in spool")
+    return out
+
+
+MSG_MAX = 255
+
+
+def fit(probs, limit=MSG_MAX):
+    """One message under Kuma's limit in which every problem is visible. Cutting the joined text at the limit once hid a real CFB problem behind two long
+    MLB ones, so each problem gets a fair share instead, and only when there are too many to show even briefly are the last ones counted."""
+    msg = "; ".join(probs)
+    if len(msg) <= limit:
+        return msg
+    for k in range(len(probs), 0, -1):  # show as many problems as can each keep at least 40 characters
+        tail = f" (+{len(probs) - k} more)" if k < len(probs) else ""
+        share = (limit - len(tail) - 2 * (k - 1)) // k
+        if share >= 40 or k == 1:
+            return "; ".join(p if len(p) <= share else p[:share - 1] + "\u2026" for p in probs[:k]) + tail
+    return msg[:limit]
+
+
+def main():
+    t0 = time.time()
+    probs = problems()
+    ok = not probs
+    msg = "OK" if ok else fit(probs)
+    if not TOKEN:
+        print("MLLAB_KUMA_PUSH_TOKEN not set; not pushing", file=sys.stderr)
+        print(("OK: " if ok else "PROBLEM: ") + msg)
+        return 2
+    qs = urllib.parse.urlencode({"status": "up" if ok else "down", "msg": msg, "ping": int((time.time() - t0) * 1000)})
+    try:
+        urllib.request.urlopen(f"{KUMA}/api/push/{TOKEN}?{qs}", timeout=10).read()
+    except Exception as e:
+        print(f"push failed: {e}", file=sys.stderr)
+    print(("OK: " if ok else "PROBLEM: ") + msg)
+    return 0 if ok else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

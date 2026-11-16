@@ -1,0 +1,22 @@
+[Unit]
+Description=mllab model health dashboard and self-healing pass
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=mllab
+Group=mllab
+Slice=mllab.slice
+Nice=15
+EnvironmentFile=/etc/mllab/env
+Environment=MLLAB_BQ_CLIENT=1
+WorkingDirectory=/opt/mllab/src
+# Self-healing is dry-run unless /etc/mllab/remedy.json says otherwise. Exit 5 (something critical) is a finding, not a unit failure.
+ExecStart=/opt/mllab/venv/bin/mllab health --sports mlb,nfl,cfb --build --remedy
+SuccessExitStatus=0 5
+TimeoutStartSec=300
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/mnt/appdata/mllab /var/lib/mllab

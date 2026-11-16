@@ -1,0 +1,20 @@
+[Unit]
+Description=mllab API (forward_auth + healthz), loopback only
+After=network.target
+
+[Service]
+User=mllab
+Group=mllab
+Slice=mllab.slice
+Nice=15
+EnvironmentFile=/etc/mllab/env
+ExecStart=/opt/mllab/venv/bin/uvicorn mllab.app:app --host 127.0.0.1 --port 8897
+Restart=on-failure
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ReadWritePaths=/mnt/appdata/mllab /var/lib/mllab
+
+[Install]
+WantedBy=multi-user.target

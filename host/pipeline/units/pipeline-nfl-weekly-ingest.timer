@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: nfl-weekly-ingest (cron '0 6 * 9-12,1,2 2' America/New_York)
+
+[Timer]
+OnCalendar=Tue *-01..02,09..12-* 06:00:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@nfl-weekly-ingest.service
+
+[Install]
+WantedBy=timers.target

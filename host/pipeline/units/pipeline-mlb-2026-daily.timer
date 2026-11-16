@@ -1,0 +1,11 @@
+[Unit]
+Description=Pipeline timer: mlb-2026-daily (cron '0 4 * 3-11 *' America/New_York)
+
+[Timer]
+OnCalendar=*-03..11-* 04:00:00 America/New_York
+Persistent=true
+AccuracySec=1s
+Unit=pipeline-job@mlb-2026-daily.service
+
+[Install]
+WantedBy=timers.target

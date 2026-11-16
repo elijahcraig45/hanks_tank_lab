@@ -1,0 +1,50 @@
+# Two questions on ONE frame (identical games, identical Elo history), scored 2017-2024 like the repo's trainer:
+#  1. Does EPA help? Same model, EPA-derived columns removed. The repo's own --no-epa flag is confounded: without EPA it also starts
+#     Elo/head-to-head in 1999 instead of 2006, so it changes the features AND the Elo warm-up. Excluding columns here changes only the features.
+#     The pattern below reproduces the repo's no-EPA feature set exactly (46 columns: 6 absent + 40 constant-zero without EPA).
+#  2. How much of an XGBoost result is seed luck? 1 seed vs the average of 5.
+name: nfl_ablation
+data: {file: nfl_features.parquet}
+env_lock: ../scripts/football/requirements.lock
+label: home_won
+date: game_date
+id: game_id
+start: 2006-01-01
+timeout_s: 3000
+columns:
+  - {name: elo, column: elo_home_win_prob}
+retrain:
+  - name: xgb_pure_1seed
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+    family: xgboost
+    impute: zero
+    params: &xgb {max_depth: 3, min_child_weight: 20, learning_rate: 0.03, n_estimators: 400, subsample: 0.8, colsample_bytree: 0.6, gamma: 0.5, reg_lambda: 5.0, tree_method: hist, n_jobs: 2}
+    walk_forward: &wf {group: season, min_groups: 11}
+  - name: xgb_pure_5seeds
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+    family: xgboost
+    impute: zero
+    params: *xgb
+    seeds: [1, 2, 3, 4, 5]
+    walk_forward: *wf
+  - name: xgb_noepa_5seeds
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line], exclude_pattern: "epa|success_rate|explosive|_vs_"}
+    family: xgboost
+    impute: zero
+    params: *xgb
+    seeds: [1, 2, 3, 4, 5]
+    walk_forward: *wf
+  - name: lr_pure
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line]}
+    family: logreg
+    impute: zero
+    params: {C: 0.1}
+    walk_forward: *wf
+  - name: lr_noepa
+    features: {all_numeric: true, exclude: [season, week, spread_line, total_line], exclude_pattern: "epa|success_rate|explosive|_vs_"}
+    family: logreg
+    impute: zero
+    params: {C: 0.1}
+    walk_forward: *wf
+thresholds: [0.5, 0.55, 0.6, 0.65]
+bootstrap: 2000
